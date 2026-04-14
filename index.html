@@ -29,7 +29,6 @@
   h1 { font-size: 32px; color: #ffd700; margin-bottom: 30px; text-align: center; }
   h2 { font-size: 24px; color: #ffd700; margin-bottom: 20px; text-align: center; }
 
-  /* 开始页面 */
   #start-screen .subtitle {
     color: #aaa;
     text-align: center;
@@ -143,7 +142,7 @@
     margin-bottom: 15px;
   }
   #video { display: block; transform: scaleX(-1); }
-  #overlay { position: absolute; top: 0; left: 0; pointer-events: none; }
+  #canvas { position: absolute; top: 0; left: 0; }
 
   #similarity-display {
     text-align: center;
@@ -186,39 +185,6 @@
   #modal-content p { color: #aaa; margin-bottom: 25px; }
   #modal-content .btn-group { display: flex; flex-direction: column; gap: 10px; }
 
-  /* 全部通关 */
-  #game-complete h3 { font-size: 28px; color: #ffd700; margin-bottom: 10px; }
-  #game-complete .score { font-size: 48px; color: #ffd700; margin: 15px 0; }
-  #game-complete .stats { color: #aaa; margin-bottom: 25px; }
-
-  /* 加载中 */
-  #loading {
-    position: fixed;
-    top: 50%; left: 50%;
-    transform: translate(-50%, -50%);
-    font-size: 18px;
-    background: rgba(0,0,0,0.9);
-    padding: 25px 40px;
-    border-radius: 15px;
-    z-index: 300;
-  }
-
-  .back-btn {
-    position: fixed;
-    top: 15px;
-    left: 15px;
-    padding: 10px 20px;
-    font-size: 14px;
-    background: rgba(255,255,255,0.1);
-    color: #fff;
-    border: none;
-    border-radius: 20px;
-    cursor: pointer;
-    z-index: 50;
-  }
-
-  #score-display { color: #ffd700; }
-
   /* 游戏规则 */
   .rules-intro {
     color: #aaa;
@@ -251,12 +217,43 @@
     color: #fff;
     margin-top: 10px;
   }
+
+  .back-btn {
+    position: fixed;
+    top: 15px;
+    left: 15px;
+    padding: 10px 20px;
+    font-size: 14px;
+    background: rgba(255,255,255,0.1);
+    color: #fff;
+    border: none;
+    border-radius: 20px;
+    cursor: pointer;
+    z-index: 50;
+  }
+
+  #score-display { color: #ffd700; }
+
+  /* 提示动画 */
+  #action-tip {
+    position: fixed;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 10px 25px;
+    background: rgba(0,255,136,0.2);
+    border: 2px solid #00ff88;
+    border-radius: 25px;
+    font-size: 16px;
+    color: #00ff88;
+    opacity: 0;
+    transition: opacity 0.3s;
+    z-index: 50;
+  }
+  #action-tip.show { opacity: 1; }
 </style>
 </head>
 <body>
-
-<!-- 加载中 -->
-<div id="loading" class="hidden">正在加载模型...</div>
 
 <!-- 开始页面 -->
 <div id="start-screen" class="screen">
@@ -296,13 +293,15 @@
 
   <div id="video-container">
     <video id="video" width="320" height="320" autoplay playsinline></video>
-    <canvas id="overlay" width="320" height="320"></canvas>
+    <canvas id="canvas" width="320" height="320"></canvas>
   </div>
 
   <div id="similarity-display">
     <div id="similarity-value" class="similarity-low">0%</div>
     <div id="similarity-label">与目标表情的相似度</div>
   </div>
+
+  <div id="action-tip"></div>
 
   <!-- 倒计时遮罩 -->
   <div id="countdown-overlay">
@@ -320,26 +319,26 @@
   </div>
 </div>
 
-<script src="https://unpkg.com/face-api.js@0.22.2/dist/face-api.min.js"></script>
 <script>
+// 表情关卡配置 - 使用动作检测替代模型
 const EMOTIONS = [
-  { name: '平静', key: 'neutral', hint: '保持自然放松的表情' },
-  { name: '开心', key: 'happy', hint: '露出自然的笑容' },
-  { name: '惊讶', key: 'surprised', hint: '眉毛上扬，嘴巴张开' },
-  { name: '悲伤', key: 'sad', hint: '嘴角向下，眉头微微皱起' },
-  { name: '生气', key: 'angry', hint: '眉头下压，嘴唇抿紧' },
-  { name: '害怕', key: 'fearful', hint: '眼睛睁大，眉毛上扬' },
-  { name: '厌恶', key: 'disgusted', hint: '皱起鼻子，嘴角下拉' }
+  { name: '平静', key: 'neutral', hint: '保持自然放松的表情', action: 'none' },
+  { name: '微笑', key: 'smile', hint: '轻轻上扬嘴角', action: 'smile' },
+  { name: '张嘴', key: 'open_mouth', hint: '张开嘴巴', action: 'open_mouth' },
+  { name: '皱眉', key: 'frown', hint: '眉头皱在一起', action: 'frown' },
+  { name: '闭眼', key: 'close_eyes', hint: '轻轻闭上眼睛', action: 'close_eyes' },
+  { name: '惊讶', key: 'surprise', hint: '眉毛上扬，眼睛睁大', action: 'surprise' },
+  { name: '生气', key: 'angry', hint: '皱眉瞪眼', action: 'angry' }
 ];
 
 const PASS_THRESHOLD = 0.9;
 const TIME_LIMIT = 30;
-const STORAGE_KEY = 'emotion_game_progress';
+const STORAGE_KEY = 'emotion_game_progress_v2';
 
 let gameState = {
   currentLevel: 0,
   totalScore: 0,
-  levels: {} // { levelIndex: { cleared: true, bestScore: 0 } }
+  levels: {}
 };
 
 let isPlaying = false;
@@ -347,6 +346,15 @@ let timer = TIME_LIMIT;
 let timerInterval = null;
 let video = null;
 let canvas = null;
+let ctx = null;
+let animationId = null;
+
+// 上一帧的数据用于比较
+let lastFaceData = null;
+let smileHistory = [];
+let mouthHistory = [];
+let browHistory = [];
+let eyeHistory = [];
 
 function loadProgress() {
   try {
@@ -356,9 +364,7 @@ function loadProgress() {
       gameState.levels = parsed.levels || {};
       gameState.totalScore = parsed.totalScore || 0;
     }
-  } catch (e) {
-    console.error('Failed to load progress:', e);
-  }
+  } catch (e) {}
 }
 
 function saveProgress() {
@@ -367,9 +373,7 @@ function saveProgress() {
       levels: gameState.levels,
       totalScore: gameState.totalScore
     }));
-  } catch (e) {
-    console.error('Failed to save progress:', e);
-  }
+  } catch (e) {}
 }
 
 function isLevelUnlocked(levelIndex) {
@@ -411,6 +415,13 @@ function showScreen(screenId) {
   document.getElementById(screenId).classList.remove('hidden');
 }
 
+function showActionTip(text) {
+  const tip = document.getElementById('action-tip');
+  tip.textContent = text;
+  tip.classList.add('show');
+  setTimeout(() => tip.classList.remove('show'), 1500);
+}
+
 function startLevel(levelIndex) {
   gameState.currentLevel = levelIndex;
   timer = TIME_LIMIT;
@@ -430,7 +441,6 @@ function startLevel(levelIndex) {
 
   // 3秒倒计时
   startCountdown(3, () => {
-    // 倒计时结束后开始游戏
     isPlaying = true;
     if (timerInterval) clearInterval(timerInterval);
     timerInterval = setInterval(() => {
@@ -501,7 +511,7 @@ function passLevel() {
 
 function failLevel() {
   isPlaying = false;
-  const currentSimilarity = Math.round(getCurrentSimilarity() * 100);
+  const currentSimilarity = parseInt(document.getElementById('similarity-value').textContent);
 
   showModal({
     title: '😢 时间到！',
@@ -551,11 +561,6 @@ function hideModal() {
   document.getElementById('modal').classList.add('hidden');
 }
 
-function getCurrentSimilarity() {
-  const el = document.getElementById('similarity-value');
-  return parseInt(el.textContent) / 100;
-}
-
 async function initCamera() {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
@@ -570,108 +575,304 @@ async function initCamera() {
   }
 }
 
-async function loadModels() {
-  const loadingEl = document.getElementById('loading');
-  loadingEl.classList.remove('hidden');
-  loadingEl.innerHTML = '<div style="font-size:16px;margin-bottom:15px;">正在加载模型...</div><div style="font-size:14px;color:#aaa;">首次加载需要下载约1MB模型文件<br>请耐心等待...</div>';
+// 简单的肤色检测 - 检查像素是否接近肤色
+function isSkinTone(r, g, b) {
+  // 简化的肤色判断
+  const isLight = r > 95 && g > 40 && b > 20;
+  const isSkin = Math.max(r, g, b) - Math.min(r, g, b) > 15;
+  const isFaceRegion = !(r > 200 && g > 200 && b > 200); // 排除过亮的区域
+  return isLight && isSkin && isFaceRegion;
+}
 
-  const updateStatus = (text) => {
-    loadingEl.innerHTML = `<div style="font-size:16px;margin-bottom:15px;">${text}</div><div style="font-size:14px;color:#aaa;">请耐心等待...</div>`;
+// 检测嘴巴区域
+function detectMouthRegion(imageData, faceY, faceH) {
+  const w = canvas.width;
+  const mouthY = faceY + faceH * 0.65;
+  const mouthH = faceH * 0.15;
+  const mouthW = w * 0.4;
+  const mouthX = (w - mouthW) / 2;
+
+  let skinPixels = 0;
+  let totalPixels = 0;
+  let darkPixels = 0; // 可能是嘴巴张开
+
+  for (let y = Math.floor(mouthY); y < Math.floor(mouthY + mouthH); y += 2) {
+    for (let x = Math.floor(mouthX); x < Math.floor(mouthX + mouthW); x += 2) {
+      const idx = (y * w + x) * 4;
+      const r = imageData.data[idx];
+      const g = imageData.data[idx + 1];
+      const b = imageData.data[idx + 2];
+
+      totalPixels++;
+      if (isSkinTone(r, g, b)) {
+        skinPixels++;
+      }
+      // 检测较暗的区域（嘴巴内部）
+      if (r < 80 && g < 80 && b < 80) {
+        darkPixels++;
+      }
+    }
+  }
+
+  return {
+    skinRatio: skinPixels / totalPixels,
+    darkRatio: darkPixels / totalPixels
   };
-
-  try {
-    // 使用 jsdelivr CDN，速度更快
-    const baseUrl = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.12/weights';
-
-    updateStatus('加载人脸检测模型...');
-    await faceapi.nets.tinyFaceDetector.loadFromUri(baseUrl + '/tiny_face_detector_model-weights_manifest.json');
-
-    updateStatus('加载表情识别模型...');
-    await faceapi.nets.faceExpressionNet.loadFromUri(baseUrl + '/face_expression_model-weights_manifest.json');
-
-    loadingEl.classList.add('hidden');
-  } catch (err) {
-    console.error('Model load error:', err);
-    // 备用方案：使用官方 GitHub raw
-    try {
-      updateStatus('CDN加载失败，尝试备用源...');
-      await faceapi.nets.tinyFaceDetector.loadFromUri(
-        'https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights/tiny_face_detector_model-weights_manifest.json'
-      );
-      await faceapi.nets.faceExpressionNet.loadFromUri(
-        'https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights/face_expression_model-weights_manifest.json'
-      );
-      loadingEl.classList.add('hidden');
-    } catch (err2) {
-      loadingEl.innerHTML = '<div style="color:#ff4757;">模型加载失败</div><div style="font-size:14px;color:#aaa;margin-top:10px;">请检查网络后刷新重试</div>';
-    }
-  }
 }
 
-let lastDetectionTime = 0;
-const DETECTION_INTERVAL = 100;
+// 检测眼睛区域
+function detectEyeRegion(imageData, faceY, faceH) {
+  const w = canvas.width;
+  const eyeY = faceY + faceH * 0.25;
+  const eyeH = faceH * 0.12;
+  const leftEyeX = w * 0.25;
+  const rightEyeX = w * 0.55;
+  const eyeW = w * 0.2;
 
-async function detectEmotion() {
-  if (!video || !isPlaying) {
-    requestAnimationFrame(detectEmotion);
+  let leftClosed = 0, rightClosed = 0;
+  let totalPixels = 0;
+
+  // 检测左眼
+  for (let y = Math.floor(eyeY); y < Math.floor(eyeY + eyeH); y += 2) {
+    for (let x = Math.floor(leftEyeX); x < Math.floor(leftEyeX + eyeW); x += 2) {
+      const idx = (y * w + x) * 4;
+      const r = imageData.data[idx];
+      const g = imageData.data[idx + 1];
+      const b = imageData.data[idx + 2];
+      totalPixels++;
+      if (!isSkinTone(r, g, b)) {
+        leftClosed++;
+      }
+    }
+  }
+
+  // 检测右眼
+  for (let y = Math.floor(eyeY); y < Math.floor(eyeY + eyeH); y += 2) {
+    for (let x = Math.floor(rightEyeX); x < Math.floor(rightEyeX + eyeW); x += 2) {
+      const idx = (y * w + x) * 4;
+      const r = imageData.data[idx];
+      const g = imageData.data[idx + 1];
+      const b = imageData.data[idx + 2];
+      if (!isSkinTone(r, g, b)) {
+        rightClosed++;
+      }
+    }
+  }
+
+  return {
+    leftClosedRatio: leftClosed / totalPixels,
+    rightClosedRatio: rightClosed / totalPixels
+  };
+}
+
+// 检测眉毛区域（皱眉）
+function detectBrowRegion(imageData, faceY, faceH) {
+  const w = canvas.width;
+  const browY = faceY + faceH * 0.15;
+  const browH = faceH * 0.08;
+  const leftBrowX = w * 0.25;
+  const rightBrowX = w * 0.55;
+  const browW = w * 0.2;
+
+  let totalPixels = 0;
+  let shadowPixels = 0; // 皱眉时眉毛下方的阴影
+
+  for (let y = Math.floor(browY); y < Math.floor(browY + browH); y += 2) {
+    for (let x = Math.floor(leftBrowX); x < Math.floor(leftBrowX + browW); x += 2) {
+      const idx = (y * w + x) * 4;
+      const r = imageData.data[idx];
+      const g = imageData.data[idx + 1];
+      const b = imageData.data[idx + 2];
+      totalPixels++;
+      // 检测眉毛下方的阴影
+      if (r < 60 && g < 60 && b < 60) {
+        shadowPixels++;
+      }
+    }
+  }
+
+  return shadowPixels / Math.max(totalPixels, 1);
+}
+
+// 简化的面部检测 - 基于肤色区域
+function detectFaceRegion(imageData) {
+  const w = canvas.width;
+  const h = canvas.height;
+
+  // 扫描整个图像找肤色集中区域
+  let minX = w, maxX = 0, minY = h, maxY = 0;
+  let skinCount = 0;
+
+  for (let y = 0; y < h; y += 4) {
+    for (let x = 0; x < w; x += 4) {
+      const idx = (y * w + x) * 4;
+      const r = imageData.data[idx];
+      const g = imageData.data[idx + 1];
+      const b = imageData.data[idx + 2];
+
+      if (isSkinTone(r, g, b)) {
+        skinCount++;
+        minX = Math.min(minX, x);
+        maxX = Math.max(maxX, x);
+        minY = Math.min(minY, y);
+        maxY = Math.max(maxY, y);
+      }
+    }
+  }
+
+  if (skinCount < 500) return null; // 人脸太小或不存在
+
+  return {
+    x: minX,
+    y: minY,
+    width: maxX - minX,
+    height: maxY - minY
+  };
+}
+
+// 基于动作检测计算相似度
+function calculateSimilarity(faceData) {
+  const emotion = EMOTIONS[gameState.currentLevel];
+  let similarity = 0;
+  let tips = [];
+
+  // 平表情 - 检测面部是否有明显动作
+  if (emotion.action === 'none') {
+    // 平静表情：嘴巴暗区少，眼睛睁开，眉毛正常
+    const mouthDark = mouthHistory.length > 0 ? mouthHistory[mouthHistory.length - 1].darkRatio : 0;
+    const eyeClosed = eyeHistory.length > 0 ? (eyeHistory[eyeHistory.length - 1].leftClosedRatio + eyeHistory[eyeHistory.length - 1].rightClosedRatio) / 2 : 0;
+    const browShadow = browHistory.length > 0 ? browHistory[browHistory.length - 1] : 0;
+
+    // 平静 = 嘴巴不张 + 眼睛不太闭 + 眉毛不太皱眉
+    const mouthScore = 1 - Math.min(mouthDark * 10, 1);
+    const eyeScore = 1 - Math.min(eyeClosed * 3, 1);
+    const browScore = 1 - Math.min(browShadow * 20, 1);
+
+    similarity = (mouthScore + eyeScore + browScore) / 3;
+    if (mouthDark < 0.05 && eyeClosed < 0.3 && browShadow < 0.05) {
+      tips.push('保持住！');
+    }
+  }
+
+  // 微笑 - 检测嘴角上扬和嘴巴张开
+  if (emotion.action === 'smile') {
+    const mouthData = mouthHistory.length > 0 ? mouthHistory[mouthHistory.length - 1] : { skinRatio: 0, darkRatio: 0 };
+    // 微笑时嘴巴上方有更多肤色暴露
+    similarity = Math.min(mouthData.skinRatio * 1.5 + mouthData.darkRatio * 3, 1);
+    if (similarity > 0.4) tips.push('再笑大一点！');
+  }
+
+  // 张嘴 - 检测嘴巴内部暗区
+  if (emotion.action === 'open_mouth') {
+    const mouthData = mouthHistory.length > 0 ? mouthHistory[mouthHistory.length - 1] : { darkRatio: 0 };
+    similarity = Math.min(mouthData.darkRatio * 8, 1);
+    if (similarity > 0.3) tips.push('嘴巴张大一点！');
+  }
+
+  // 皱眉 - 检测眉毛阴影
+  if (emotion.action === 'frown') {
+    const browShadow = browHistory.length > 0 ? browHistory[browHistory.length - 1] : 0;
+    similarity = Math.min(browShadow * 15, 1);
+    if (similarity > 0.3) tips.push('眉头皱紧一点！');
+  }
+
+  // 闭眼 - 检测眼睛区域非肤色
+  if (emotion.action === 'close_eyes') {
+    const eyeData = eyeHistory.length > 0 ? eyeHistory[eyeHistory.length - 1] : { leftClosedRatio: 0, rightClosedRatio: 0 };
+    const avgClosed = (eyeData.leftClosedRatio + eyeData.rightClosedRatio) / 2;
+    similarity = Math.min(avgClosed * 4, 1);
+    if (similarity > 0.4) tips.push('轻轻闭眼！');
+  }
+
+  // 惊讶 - 张嘴 + 睁大眼睛
+  if (emotion.action === 'surprise') {
+    const mouthData = mouthHistory.length > 0 ? mouthHistory[mouthHistory.length - 1] : { darkRatio: 0 };
+    const eyeData = eyeHistory.length > 0 ? eyeHistory[eyeHistory.length - 1] : { leftClosedRatio: 0, rightClosedRatio: 0 };
+    const avgEyeOpen = 1 - (eyeData.leftClosedRatio + eyeData.rightClosedRatio) / 2;
+    const mouthScore = Math.min(mouthData.darkRatio * 8, 1);
+    similarity = (avgEyeOpen + mouthScore) / 2;
+    if (mouthData.darkRatio > 0.1) tips.push('嘴巴再张大！');
+  }
+
+  // 生气 - 皱眉 + 瞪眼
+  if (emotion.action === 'angry') {
+    const browShadow = browHistory.length > 0 ? browHistory[browHistory.length - 1] : 0;
+    const eyeData = eyeHistory.length > 0 ? eyeHistory[eyeHistory.length - 1] : { leftClosedRatio: 0, rightClosedRatio: 0 };
+    const avgEyeOpen = 1 - (eyeData.leftClosedRatio + eyeData.rightClosedRatio) / 2;
+    const browScore = Math.min(browShadow * 15, 1);
+    similarity = (browScore + avgEyeOpen) / 2;
+    if (browShadow > 0.05) tips.push('眉头再皱紧一点！');
+  }
+
+  if (tips.length > 0 && Math.random() < 0.05) {
+    showActionTip(tips[0]);
+  }
+
+  return similarity;
+}
+
+// 主检测循环
+function detect() {
+  if (!video || !canvas) {
+    requestAnimationFrame(detect);
     return;
   }
 
-  const now = Date.now();
-  if (now - lastDetectionTime < DETECTION_INTERVAL) {
-    requestAnimationFrame(detectEmotion);
-    return;
-  }
-  lastDetectionTime = now;
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
-  try {
-    const detections = await faceapi
-      .detectAllFaces(video, new faceapi.TinyFaceDetectorOptions())
-      .withFaceExpressions();
+  // 检测人脸区域
+  const face = detectFaceRegion(imageData);
 
-    const ctx = canvas;
-    ctx.clearRect(0, 0, 320, 320);
+  if (face && isPlaying) {
+    // 收集各部位数据
+    const mouthData = detectMouthRegion(imageData, face.y, face.height);
+    const eyeData = detectEyeRegion(imageData, face.y, face.height);
+    const browData = detectBrowRegion(imageData, face.y, face.height);
 
-    if (detections.length > 0) {
-      const expressions = detections[0].expressions;
-      const targetKey = EMOTIONS[gameState.currentLevel].key;
-      const similarity = expressions[targetKey] || 0;
+    // 更新历史记录（滑动窗口）
+    mouthHistory.push(mouthData);
+    eyeHistory.push(eyeData);
+    browHistory.push(browData);
+    if (mouthHistory.length > 10) mouthHistory.shift();
+    if (eyeHistory.length > 10) eyeHistory.shift();
+    if (browHistory.length > 10) browHistory.shift();
 
-      const percent = Math.round(similarity * 100);
-      const valueEl = document.getElementById('similarity-value');
-      valueEl.textContent = percent + '%';
+    // 计算相似度
+    const similarity = calculateSimilarity(face);
+    const percent = Math.round(similarity * 100);
 
-      if (percent >= 90) {
-        valueEl.className = 'similarity-high';
-      } else if (percent >= 70) {
-        valueEl.className = 'similarity-mid';
-      } else {
-        valueEl.className = 'similarity-low';
-      }
+    const valueEl = document.getElementById('similarity-value');
+    valueEl.textContent = percent + '%';
 
-      if (isPlaying && similarity >= PASS_THRESHOLD) {
-        passLevel();
-      }
+    if (percent >= 90) {
+      valueEl.className = 'similarity-high';
+    } else if (percent >= 70) {
+      valueEl.className = 'similarity-mid';
     } else {
-      document.getElementById('similarity-value').textContent = '未检测到人脸';
-      document.getElementById('similarity-value').className = 'similarity-low';
+      valueEl.className = 'similarity-low';
     }
-  } catch (e) {
-    console.error('Detection error:', e);
+
+    if (similarity >= PASS_THRESHOLD) {
+      passLevel();
+    }
+  } else if (!face && isPlaying) {
+    document.getElementById('similarity-value').textContent = '请对准摄像头';
+    document.getElementById('similarity-value').className = 'similarity-low';
   }
 
-  requestAnimationFrame(detectEmotion);
+  requestAnimationFrame(detect);
 }
 
+// 事件绑定
 document.getElementById('start-btn').addEventListener('click', async () => {
-  if (video.srcObject) {
+  if (video && video.srcObject) {
     showLevelSelect();
     return;
   }
   if (await initCamera()) {
-    await loadModels();
     showLevelSelect();
-    detectEmotion();
+    detect();
   }
 });
 
@@ -696,8 +897,10 @@ document.getElementById('back-from-levels').addEventListener('click', () => {
   showScreen('start-screen');
 });
 
+// 初始化
 video = document.getElementById('video');
-canvas = document.getElementById('overlay').getContext('2d');
+canvas = document.getElementById('canvas');
+ctx = canvas.getContext('2d');
 
 loadProgress();
 renderLevelGrid();
