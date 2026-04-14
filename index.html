@@ -571,22 +571,41 @@ async function initCamera() {
 }
 
 async function loadModels() {
-  document.getElementById('loading').classList.remove('hidden');
-  document.getElementById('loading').textContent = '加载检测模型...';
+  const loadingEl = document.getElementById('loading');
+  loadingEl.classList.remove('hidden');
+  loadingEl.innerHTML = '<div style="font-size:16px;margin-bottom:15px;">正在加载模型...</div><div style="font-size:14px;color:#aaa;">首次加载需要下载约1MB模型文件<br>请耐心等待...</div>';
+
+  const updateStatus = (text) => {
+    loadingEl.innerHTML = `<div style="font-size:16px;margin-bottom:15px;">${text}</div><div style="font-size:14px;color:#aaa;">请耐心等待...</div>`;
+  };
+
   try {
-    await faceapi.nets.tinyFaceDetector.loadFromUri(
-      'https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights/tiny_face_detector_model-weights_manifest.json'
-    );
-    document.getElementById('loading').textContent = '加载表情模型...';
-    await faceapi.nets.faceExpressionNet.loadFromUri(
-      'https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights/face_expression_model-weights_manifest.json'
-    );
+    // 使用 jsdelivr CDN，速度更快
+    const baseUrl = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.12/weights';
+
+    updateStatus('加载人脸检测模型...');
+    await faceapi.nets.tinyFaceDetector.loadFromUri(baseUrl + '/tiny_face_detector_model-weights_manifest.json');
+
+    updateStatus('加载表情识别模型...');
+    await faceapi.nets.faceExpressionNet.loadFromUri(baseUrl + '/face_expression_model-weights_manifest.json');
+
+    loadingEl.classList.add('hidden');
   } catch (err) {
     console.error('Model load error:', err);
-    document.getElementById('loading').textContent = '模型加载失败，请刷新重试';
-    return;
+    // 备用方案：使用官方 GitHub raw
+    try {
+      updateStatus('CDN加载失败，尝试备用源...');
+      await faceapi.nets.tinyFaceDetector.loadFromUri(
+        'https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights/tiny_face_detector_model-weights_manifest.json'
+      );
+      await faceapi.nets.faceExpressionNet.loadFromUri(
+        'https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights/face_expression_model-weights_manifest.json'
+      );
+      loadingEl.classList.add('hidden');
+    } catch (err2) {
+      loadingEl.innerHTML = '<div style="color:#ff4757;">模型加载失败</div><div style="font-size:14px;color:#aaa;margin-top:10px;">请检查网络后刷新重试</div>';
+    }
   }
-  document.getElementById('loading').classList.add('hidden');
 }
 
 let lastDetectionTime = 0;
