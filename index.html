@@ -218,6 +218,39 @@
   }
 
   #score-display { color: #ffd700; }
+
+  /* 游戏规则 */
+  .rules-intro {
+    color: #aaa;
+    text-align: center;
+    margin-bottom: 25px;
+    font-size: 16px;
+  }
+
+  /* 倒计时遮罩 */
+  #countdown-overlay {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(0,0,0,0.85);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 150;
+  }
+  #countdown-overlay.hidden { display: none; }
+  #countdown-number {
+    font-size: 120px;
+    font-weight: bold;
+    color: #ffd700;
+    text-shadow: 0 0 30px rgba(255,215,0,0.5);
+  }
+  #countdown-text {
+    font-size: 24px;
+    color: #fff;
+    margin-top: 10px;
+  }
 </style>
 </head>
 <body>
@@ -242,6 +275,7 @@
 <div id="level-select" class="screen hidden">
   <button class="back-btn" id="back-from-levels">返回</button>
   <h2>选择关卡</h2>
+  <p class="rules-intro">做出相应表情，相似度达到90%即可通关</p>
   <div class="level-grid" id="level-grid"></div>
 </div>
 
@@ -268,6 +302,12 @@
   <div id="similarity-display">
     <div id="similarity-value" class="similarity-low">0%</div>
     <div id="similarity-label">与目标表情的相似度</div>
+  </div>
+
+  <!-- 倒计时遮罩 -->
+  <div id="countdown-overlay">
+    <div id="countdown-number">3</div>
+    <div id="countdown-text">准备开始</div>
   </div>
 </div>
 
@@ -373,7 +413,6 @@ function showScreen(screenId) {
 
 function startLevel(levelIndex) {
   gameState.currentLevel = levelIndex;
-  isPlaying = true;
   timer = TIME_LIMIT;
 
   const emotion = EMOTIONS[levelIndex];
@@ -384,17 +423,43 @@ function startLevel(levelIndex) {
   document.getElementById('score-display').textContent = gameState.totalScore;
   document.getElementById('similarity-value').textContent = '0%';
   document.getElementById('similarity-value').className = 'similarity-low';
+  document.getElementById('timer').textContent = TIME_LIMIT + 's';
+  document.getElementById('timer').classList.remove('warning');
 
-  updateTimer();
   showScreen('game-screen');
 
-  if (timerInterval) clearInterval(timerInterval);
-  timerInterval = setInterval(() => {
-    timer--;
-    updateTimer();
-    if (timer <= 0) {
-      clearInterval(timerInterval);
-      failLevel();
+  // 3秒倒计时
+  startCountdown(3, () => {
+    // 倒计时结束后开始游戏
+    isPlaying = true;
+    if (timerInterval) clearInterval(timerInterval);
+    timerInterval = setInterval(() => {
+      timer--;
+      updateTimer();
+      if (timer <= 0) {
+        clearInterval(timerInterval);
+        failLevel();
+      }
+    }, 1000);
+  });
+}
+
+function startCountdown(seconds, callback) {
+  const overlay = document.getElementById('countdown-overlay');
+  const numberEl = document.getElementById('countdown-number');
+  overlay.classList.remove('hidden');
+
+  let count = seconds;
+  numberEl.textContent = count;
+
+  const interval = setInterval(() => {
+    count--;
+    if (count > 0) {
+      numberEl.textContent = count;
+    } else {
+      clearInterval(interval);
+      overlay.classList.add('hidden');
+      callback();
     }
   }, 1000);
 }
