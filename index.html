@@ -280,7 +280,7 @@
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+<script src="https://unpkg.com/face-api.js@0.22.2/dist/face-api.min.js"></script>
 <script>
 const EMOTIONS = [
   { name: '平静', key: 'neutral', hint: '保持自然放松的表情' },
@@ -507,13 +507,18 @@ async function initCamera() {
 
 async function loadModels() {
   document.getElementById('loading').classList.remove('hidden');
+  document.getElementById('loading').textContent = '加载检测模型...';
   try {
-    const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.12/model';
-    await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
-    await faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL);
+    await faceapi.nets.tinyFaceDetector.loadFromUri(
+      'https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights/tiny_face_detector_model-weights_manifest.json'
+    );
+    document.getElementById('loading').textContent = '加载表情模型...';
+    await faceapi.nets.faceExpressionNet.loadFromUri(
+      'https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights/face_expression_model-weights_manifest.json'
+    );
   } catch (err) {
+    console.error('Model load error:', err);
     document.getElementById('loading').textContent = '模型加载失败，请刷新重试';
-    console.error(err);
     return;
   }
   document.getElementById('loading').classList.add('hidden');
