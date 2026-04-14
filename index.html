@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>表情大挑战</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    color: #fff;
+  }
+  h1 { margin: 20px 0 10px; font-size: 28px; color: #ffd700; }
+  #game-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 15px;
+    width: 100%;
+    max-width: 500px;
+    padding: 15px;
+  }
+  #status-bar {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    padding: 10px 15px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 10px;
+    font-size: 16px;
+  }
+  #target-emotion {
+    font-size: 24px;
+    font-weight: bold;
+    color: #00ff88;
+    text-align: center;
+    padding: 15px;
+    background: rgba(0,255,136,0.1);
+    border-radius: 10px;
+    width: 100%;
+  }
+  #target-emotion .hint { font-size: 14px; color: #aaa; margin-top: 5px; }
+  #timer { font-size: 20px; font-weight: bold; }
+  .warning { color: #ff4757 !important; animation: pulse 0.5s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+  #video-container {
+    position: relative;
+    border-radius: 15px;
+    overflow: hidden;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+  }
+  #video { display: block; transform: scaleX(-1); }
+  #overlay {
+    position: absolute;
+    top: 0; left: 0;
+    pointer-events: none;
+  }
+  #similarity {
+    font-size: 48px;
+    font-weight: bold;
+    color: #ffd700;
+    text-align: center;
+  }
+  #similarity-label { font-size: 16px; color: #aaa; }
+  #result {
+    font-size: 20px;
+    padding: 15px 30px;
+    border-radius: 10px;
+    text-align: center;
+  }
+  .success { background: rgba(0,255,136,0.2); color: #00ff88; }
+  .fail { background: rgba(255,71,87,0.2); color: #ff4757; }
+  #progress {
+    width: 100%;
+    height: 8px;
+    background: rgba(255,255,255,0.2);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  #progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, #00ff88, #00d4ff);
+    transition: width 0.3s;
+    width: 0%;
+  }
+  #start-screen, #end-screen {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(0,0,0,0.9);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+  #start-screen h2 { font-size: 32px; color: #ffd700; margin-bottom: 20px; }
+  #start-screen p { color: #aaa; margin-bottom: 30px; text-align: center; padding: 0 20px; line-height: 1.6; }
+  .btn {
+    padding: 15px 50px;
+    font-size: 20px;
+    border: none;
+    border-radius: 30px;
+    cursor: pointer;
+    background: linear-gradient(135deg, #00ff88, #00d4ff);
+    color: #1a1a2e;
+    font-weight: bold;
+    transition: transform 0.2s, box-shadow 0.2s;
+  }
+  .btn:hover { transform: scale(1.05); box-shadow: 0 5px 20px rgba(0,255,136,0.4); }
+  #end-screen h2 { font-size: 28px; margin-bottom: 10px; }
+  #end-screen .score { font-size: 64px; color: #ffd700; margin: 20px 0; }
+  #end-screen .stats { color: #aaa; margin-bottom: 30px; }
+  .hidden { display: none !important; }
+  #level-info { color: #00d4ff; font-size: 14px; margin-top: -10px; }
+</style>
+</head>
+<body>
+
+<div id="start-screen">
+  <h2>表情大挑战</h2>
+  <p>根据提示做出相应的表情<br>相似度达到90%即可过关<br>每关限时30秒</p>
+  <button class="btn" id="start-btn">开始挑战</button>
+</div>
+
+<div id="end-screen" class="hidden">
+  <h2>游戏结束</h2>
+  <div class="score" id="final-score">0</div>
+  <div class="stats" id="stats">通关 0 关</div>
+  <button class="btn" id="restart-btn">再来一次</button>
+</div>
+
+<div id="game-container">
+  <h1>表情大挑战</h1>
+
+  <div id="status-bar">
+    <span>关卡: <span id="level">1</span>/7</span>
+    <span id="timer">30s</span>
+    <span>得分: <span id="score">0</span></span>
+  </div>
+
+  <div id="progress"><div id="progress-bar"></div></div>
+
+  <div id="target-emotion">
+    <div id="emotion-text">平静</div>
+    <div class="hint" id="emotion-hint">保持自然放松的表情</div>
+  </div>
+
+  <div id="video-container">
+    <video id="video" width="400" height="400" autoplay playsinline></video>
+    <canvas id="overlay" width="400" height="400"></canvas>
+  </div>
+
+  <div id="similarity">
+    <div id="similarity-value">0%</div>
+    <div id="similarity-label">相似度</div>
+  </div>
+
+  <div id="result" class="hidden"></div>
+
+  <div id="level-info"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+<script>
+const EMOTIONS = [
+  { name: '平静', key: 'neutral', hint: '保持自然放松的表情', difficulty: 1 },
+  { name: '开心', key: 'happy', hint: '露出自然的笑容', difficulty: 2 },
+  { name: '惊讶', key: 'surprised', hint: '眉毛上扬，嘴巴张开', difficulty: 3 },
+  { name: '悲伤', key: 'sad', hint: '嘴角向下，眉头微微皱起', difficulty: 4 },
+  { name: '生气', key: 'angry', hint: '眉头下压，嘴唇抿紧', difficulty: 5 },
+  { name: '害怕', key: 'fearful', hint: '眼睛睁大，眉毛上扬', difficulty: 6 },
+  { name: '厌恶', key: 'disgusted', hint: '皱起鼻子，嘴角下拉', difficulty: 7 }
+];
+
+const PASS_THRESHOLD = 0.9;
+const TIME_LIMIT = 30;
+
+let currentLevel = 0;
+let score = 0;
+let timer = TIME_LIMIT;
+let timerInterval = null;
+let isPlaying = false;
+let currentEmotion = null;
+
+const video = document.getElementById('video');
+const overlay = document.getElementById('overlay');
+const canvas = document.getElementById('overlay').getContext('2d');
+
+async function loadModels() {
+  const status = document.createElement('div');
+  status.textContent = '正在加载模型...';
+  status.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);font-size:20px;z-index:200;background:rgba(0,0,0,0.8);padding:20px 40px;border-radius:10px;';
+  document.body.appendChild(status);
+
+  try {
+    const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.12/model';
+    await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+    await faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL);
+    if (status.parentNode) status.parentNode.removeChild(status);
+  } catch (err) {
+    status.textContent = '模型加载失败，请刷新重试';
+    console.error(err);
+  }
+}
+
+async function initCamera() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'user', width: 400, height: 400 }
+    });
+    video.srcObject = stream;
+    await new Promise(resolve => video.onloadedmetadata = resolve);
+    return true;
+  } catch (err) {
+    alert('无法访问摄像头，请确保已授权摄像头权限');
+    return false;
+  }
+}
+
+function startGame() {
+  currentLevel = 0;
+  score = 0;
+  updateUI();
+  document.getElementById('start-screen').classList.add('hidden');
+  document.getElementById('end-screen').classList.add('hidden');
+  nextLevel();
+}
+
+function nextLevel() {
+  if (currentLevel >= EMOTIONS.length) {
+    endGame();
+    return;
+  }
+
+  currentEmotion = EMOTIONS[currentLevel];
+  timer = TIME_LIMIT;
+  isPlaying = true;
+
+  document.getElementById('result').classList.add('hidden');
+  document.getElementById('level').textContent = currentLevel + 1;
+  document.getElementById('emotion-text').textContent = currentEmotion.name;
+  document.getElementById('emotion-hint').textContent = currentEmotion.hint;
+  document.getElementById('level-info').textContent = `目标: ${currentEmotion.name}`;
+
+  updateTimer();
+
+  if (timerInterval) clearInterval(timerInterval);
+  timerInterval = setInterval(() => {
+    timer--;
+    updateTimer();
+    if (timer <= 0) {
+      clearInterval(timerInterval);
+      failLevel();
+    }
+  }, 1000);
+}
+
+function updateTimer() {
+  const timerEl = document.getElementById('timer');
+  timerEl.textContent = timer + 's';
+  if (timer <= 5) {
+    timerEl.classList.add('warning');
+  } else {
+    timerEl.classList.remove('warning');
+  }
+}
+
+function updateUI() {
+  document.getElementById('score').textContent = score;
+  const progress = (currentLevel / EMOTIONS.length) * 100;
+  document.getElementById('progress-bar').style.width = progress + '%';
+}
+
+function passLevel() {
+  isPlaying = false;
+  clearInterval(timerInterval);
+  score += Math.round(timer * 10);
+  currentLevel++;
+  updateUI();
+
+  const result = document.getElementById('result');
+  result.className = 'success';
+  result.classList.remove('hidden');
+  result.innerHTML = `🎉 过关！+${Math.round(timer * 10)}分`;
+
+  setTimeout(nextLevel, 1500);
+}
+
+function failLevel() {
+  isPlaying = false;
+  clearInterval(timerInterval);
+
+  const result = document.getElementById('result');
+  result.className = 'fail';
+  result.classList.remove('hidden');
+  result.innerHTML = `😢 时间到！相似度 ${Math.round(getCurrentSimilarity() * 100)}%`;
+
+  currentLevel++;
+  updateUI();
+
+  setTimeout(nextLevel, 2000);
+}
+
+function endGame() {
+  isPlaying = false;
+  clearInterval(timerInterval);
+
+  document.getElementById('final-score').textContent = score;
+  document.getElementById('stats').textContent = `通关 ${Math.min(currentLevel, EMOTIONS.length)}/${EMOTIONS.length} 关`;
+  document.getElementById('end-screen').classList.remove('hidden');
+}
+
+function getCurrentSimilarity() {
+  return 0;
+}
+
+async function detectEmotion() {
+  if (!isPlaying || !video.videoWidth) return;
+
+  const detections = await faceapi
+    .detectAllFaces(video, new faceapi.TinyFaceDetectorOptions())
+    .withFaceExpressions();
+
+  canvas.clearRect(0, 0, overlay.width, overlay.height);
+
+  if (detections.length > 0) {
+    const expressions = detections[0].expressions;
+    const current = expressions[currentEmotion.key] || 0;
+
+    document.getElementById('similarity-value').textContent = Math.round(current * 100) + '%';
+
+    const progress = current * 100;
+    if (progress >= 90) {
+      document.getElementById('similarity-value').style.color = '#00ff88';
+    } else if (progress >= 70) {
+      document.getElementById('similarity-value').style.color = '#ffd700';
+    } else {
+      document.getElementById('similarity-value').style.color = '#ff4757';
+    }
+
+    if (isPlaying && current >= PASS_THRESHOLD) {
+      passLevel();
+    }
+  } else {
+    document.getElementById('similarity-value').textContent = '未检测到人脸';
+  }
+
+  requestAnimationFrame(detectEmotion);
+}
+
+document.getElementById('start-btn').addEventListener('click', async () => {
+  if (await initCamera()) {
+    loadModels().then(() => {
+      startGame();
+      detectEmotion();
+    });
+  }
+});
+
+document.getElementById('restart-btn').addEventListener('click', () => {
+  startGame();
+});
+</script>
+</body>
+</html>
